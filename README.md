@@ -170,14 +170,59 @@ for each public company. Grading uses a private set of about 20 unseen
 companies with the same tools and the same answer key rules, but different
 names and wording, and scores your 3 points only.
 
-## Homework 3 solution:
-> to students: this is your report, see the homework description.
+## Homework 3 solution
 
-### My 3 points and rules
-> for each point: why you chose it, your PASS rule in one or two sentences, and the evidence it uses. Quote Fisher where it helps.
+### Choice of points and decision rules
 
-### Design
-> a visualization of your agent design and one paragraph describing it.
+My agent evaluates points 4, 7 and 11. These questions suit Fisher's approach of learning about a business from people who deal with it. They also give the model a clear task: interpret relevant testimony and explain whether it supports a particular investment criterion. I chose a small, predictable workflow because each point has an identified source in the assignment, and unnecessary interviews would add little evidence.
 
-### Results
-> your point score on `public_test`, the companies where your verdicts disagree with the public answers, and why.
+**Point 4 — Sales organization.** Fisher asks, “Does the company have an above-average sales organization?” I chose this point because a customer's experience can reveal whether sales staff contribute anything beyond taking orders. The agent marks PASS when the interview describes knowledgeable, helpful and effective sales support that adds value; it marks FAIL when service is weak, limited to distributing prices, or regarded as inferior. The evidence comes from `interview(role="customer", topic="sales_team")`.
+
+**Point 7 — Labour and personnel relations.** I included this point because employees experience working conditions directly, while management may describe the same workplace more favourably. PASS requires evidence of good conditions, fair treatment and constructive employee relations; poor treatment, unreasonable or unsafe conditions, or serious dissatisfaction lead to FAIL. The agent asks a `current_employee` about `working_conditions` and keeps this assessment separate from relationships among executives.
+
+**Point 11 — Competitive advantage.** This point asks whether the business has distinctive strengths relative to competitors. I chose it because a rival's account can help distinguish an advantage from an ordinary product feature. The rule is PASS when the testimony identifies a meaningful advantage that competitors cannot readily copy or customers cannot readily replace, and FAIL when offerings are interchangeable or easily matched. The source is `interview(role="competitor", topic="competitive_edge")`.
+
+These are general decision rules, not mappings from company names to answers. One knowledgeable respondent per topic is sufficient under the assignment's stated assumption that informed respondents agree. The agent therefore uses three interviews per company, below the limit of ten. It does not need the document or SQL tools for these selected points, and it never reads company data directly.
+
+### Agent design
+
+```mermaid
+flowchart TD
+    A[Company and its supplied LangChain tools] --> B[Fixed interview plan]
+    B --> C[Point 4: customer / sales_team]
+    B --> D[Point 7: current_employee / working_conditions]
+    B --> E[Point 11: competitor / competitive_edge]
+    C --> F[Collect three interview answers]
+    D --> F
+    E --> F
+    F --> G[One DeepSeek call: apply rules and return JSON]
+    G --> H{Validate all three verdicts and exact quotations}
+    H -->|Valid| I[Return points and evidence-based summary]
+    H -->|Invalid or API failure| J{Attempts remaining?}
+    J -->|Yes| G
+    J -->|No| K[Return missing verdicts with an error summary]
+    I --> L[Provided runner writes results.csv and scores answers]
+    K --> L
+```
+
+`build_agent()` creates a shared LangChain `ChatDeepSeek` model using `deepseek-v4-flash`, temperature zero and JSON output. For each company, the program routes the three questions to the appropriate interview tool, then sends the collected answers and fixed rules to the model in one request. This is a programmed research workflow rather than an open-ended agent that chooses its own tools. The prompt asks the model to check each decision against its evidence and treats interview text as data, not instructions. Python checks that all three points are present, each verdict is valid, and every quotation occurs in the corresponding interview. Up to four companies are processed concurrently. A failed model request or invalid response can be retried twice using the same evidence, so retries do not spend more interviews. If analysis still fails, that company receives missing verdicts and an error summary, allowing the other companies to finish. The original tools, runner and scoring code are unchanged.
+
+### Public test results
+
+The final implementation was tested three times on all 20 public companies. The third run used a fresh local clone of the committed project with a newly created virtual environment and dependencies installed from `requirements.txt`.
+
+| Run | Correct point verdicts | Balanced point score | Elapsed time |
+| --- | --- | --- | --- |
+| 1 | 60 / 60 | 100.0% | 16.2 seconds |
+| 2 | 60 / 60 | 100.0% | 11.1 seconds |
+| 3 — fresh clone | 60 / 60 | 100.0% | 16.9 seconds |
+
+All three runs generated `results.csv` and used exactly three interviews per company. There were no companies whose final verdicts disagreed with the public answers. Across the selected points, each run correctly classified all 42 PASS cases and all 18 FAIL cases, giving a balanced score of `(42/42 + 18/18) / 2 = 100%`. The mean balanced score over the three runs was also 100%.
+
+An earlier development run scored zero because the response parser required an outer `points` field that the model sometimes omitted. The model could return the requested point objects directly, but the parser rejected that equivalent structure. I changed the validator to accept either form while retaining the checks on point numbers, verdicts and quotations. This was an interface failure, and it showed why inspecting the returned data matters before changing the investment rules. Four offline tests now cover this response format, rejection of quotations from the wrong point, reuse of interviews during retries, and isolation of company failures during an API outage. All four pass.
+
+The public results are encouraging, although they do not establish accuracy on the private companies. The design relies on the assignment's unusually clear interview evidence and agreement among knowledgeable sources. In a real investigation, one person's account would require corroboration. An exact quotation check also proves only that the words appear in the source; it cannot establish that the model interpreted them correctly. More ambiguous or conflicting testimony would need a different research process.
+
+### Task 2 reflection
+
+The English reflection is provided in [Task2_Reflection.docx](Task2_Reflection.docx).
